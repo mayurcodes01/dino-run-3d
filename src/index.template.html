@@ -1,0 +1,346 @@
+<title>Dino Run 3D</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bungee&family=Outfit:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: full-bleed WebGL canvas, edge-anchored HUD, glass panels that slide in over the scene.
+   One deliberate dark look (a game screen), so there is no light theme. */
+:root {
+  --bg: #0b0a10;
+  --panel: rgba(18, 14, 28, 0.8);
+  --panel-solid: #15111f;
+  --ink: #f6f0e4;
+  --mute: #aaa2b8;
+  --line: rgba(255, 255, 255, 0.14);
+  --amber: #ffb12a;
+  --amber-deep: #b36d00;
+  --ember: #ff5b3a;
+  --teal: #2fe0c4;
+  --good: #3ddc84;
+  --bad: #ff6a6a;
+  --display: 'Bungee', 'Impact', system-ui, sans-serif;
+  --body: 'Outfit', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); overflow: hidden; -webkit-user-select: none; user-select: none; }
+#app { position: relative; height: 100%; overflow: hidden; background: var(--bg); }
+#gl { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
+#ui { position: absolute; inset: 0; pointer-events: none; padding-block: 14px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+#ui > * { pointer-events: none; }
+button, input, select { font-family: inherit; }
+[hidden] { display: none !important; }
+
+/* ---------- Buttons ---------- */
+.btn { font: 600 16px/1 var(--body); letter-spacing: 0.02em; padding: 15px 22px; border-radius: 12px; border: 0; cursor: pointer;
+  background: var(--amber); color: #1a1106; box-shadow: 0 4px 0 var(--amber-deep); transition: transform 0.08s, box-shadow 0.08s, filter 0.15s; pointer-events: auto; }
+.btn:hover { filter: brightness(1.08); }
+.btn:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--amber-deep); }
+.btn.ghost { background: rgba(16, 12, 26, 0.72); color: var(--ink); border: 1px solid var(--line); box-shadow: 0 4px 0 rgba(0, 0, 0, 0.45); backdrop-filter: blur(8px); }
+.btn.ember { background: var(--ember); color: #fff; box-shadow: 0 4px 0 #a02c14; }
+.btn.small { padding: 10px 14px; font-size: 14px; }
+.btn[disabled] { opacity: 0.45; cursor: default; filter: none; }
+:focus-visible { outline: 3px solid var(--teal); outline-offset: 3px; }
+.iconbtn { width: 46px; height: 46px; border-radius: 50%; border: 1px solid var(--line); background: rgba(10, 8, 16, 0.55); color: var(--ink); display: grid; place-items: center; cursor: pointer; pointer-events: auto; backdrop-filter: blur(6px); }
+
+/* ---------- Screens ---------- */
+.screen { position: absolute; inset: 0; padding: inherit; opacity: 0; visibility: hidden; transform: translateY(14px);
+  transition: opacity 0.35s ease, transform 0.35s ease, visibility 0s linear 0.35s; }
+.screen.on { opacity: 1; visibility: visible; transform: none; transition-delay: 0s; }
+.screen.on .btn, .screen.on a, .screen.on .panel, .screen.on .iconbtn, .screen.on input, .screen.on select, .screen.on .card, .screen.on .tab, .screen.on .keybtn { pointer-events: auto; }
+#loading { background: var(--bg); z-index: 50; display: grid; place-content: center; justify-items: center; gap: 18px; transform: none; text-align: center; }
+#loading .logo-word { font: 34px/1 var(--display); letter-spacing: 0.04em; }
+.loadtrack { width: min(280px, 70vw); height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+#loadbar { height: 100%; background: linear-gradient(90deg, var(--amber), var(--ember)); transform: scaleX(0); transform-origin: left; transition: transform 0.4s ease; }
+#loadmsg { color: var(--mute); font-size: 14px; min-height: 1.3em; max-width: 36ch; }
+#loading.failed #loadbar { background: var(--bad); }
+#loading.failed #loadmsg { color: var(--bad); }
+
+/* ---------- Menu ---------- */
+#menu { display: flex; flex-direction: column; justify-content: space-between; }
+/* A dark scrim keeps the menu readable over any biome, from bright desert to night. */
+#menu::before { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(90deg, rgba(8, 6, 14, 0.74), rgba(8, 6, 14, 0.3) 45%, transparent 72%); }
+#menu > * { position: relative; }
+#menuHint { color: #fff; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.9); }
+.brand { display: flex; align-items: center; gap: 14px; }
+.brand svg { width: 54px; height: 54px; flex: none; }
+.foot-path { stroke: var(--amber); stroke-width: 5; stroke-linecap: round; fill: none; stroke-dasharray: 1; stroke-dashoffset: 1; }
+#menu.on .foot-path { animation: draw 1.1s 0.2s ease forwards; }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+.title { font: clamp(34px, 7vw, 64px)/0.95 var(--display); letter-spacing: 0.02em; text-wrap: balance;
+  background: linear-gradient(180deg, #fff3d4 10%, var(--amber) 55%, var(--ember)); -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.45)); }
+.tagline { color: #fff; text-shadow: 0 1px 10px rgba(0, 0, 0, 0.85); font-size: 16px; margin-top: 8px; max-width: 40ch; }
+.menu-actions { display: grid; gap: 12px; width: min(340px, 100%); }
+.menu-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.menu-bottom { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; }
+.stats { display: flex; gap: 12px; flex-wrap: wrap; }
+.chip { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; backdrop-filter: blur(8px); min-width: 0; }
+.chip small { display: block; color: var(--mute); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.chip b { font: 20px var(--display); font-variant-numeric: tabular-nums; }
+.hint { color: var(--mute); font-size: 13px; }
+
+/* ---------- Panels ---------- */
+.panelwrap { position: absolute; inset: 0; padding: inherit; display: flex; align-items: center; justify-content: flex-start; }
+.panelwrap.center { justify-content: center; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 22px; backdrop-filter: blur(14px); width: min(520px, 100%); max-height: 100%; overflow: auto; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5); }
+.panel h2 { font: 26px/1 var(--display); letter-spacing: 0.03em; margin-bottom: 16px; }
+.panel h3 { font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--mute); margin: 20px 0 10px; font-weight: 600; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.row:last-child { border-bottom: 0; }
+.row > span { min-width: 0; }
+.panel-actions { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+.panel-actions .btn { flex: 1 1 130px; }
+.bigscore { font: clamp(44px, 12vw, 72px)/1 var(--display); font-variant-numeric: tabular-nums; color: var(--amber); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+.grid2 .chip b { font-size: 18px; }
+.newbest { display: inline-block; margin-left: 10px; font: 12px var(--display); background: var(--teal); color: #05302a; padding: 5px 9px; border-radius: 6px; vertical-align: middle; }
+.mission { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.mission:last-child { border-bottom: 0; }
+.mission .top { display: flex; justify-content: space-between; gap: 10px; font-size: 15px; }
+.mission .top em { font-style: normal; color: var(--amber); white-space: nowrap; }
+.bar { height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.1); margin-top: 8px; overflow: hidden; }
+.bar > i { display: block; height: 100%; background: linear-gradient(90deg, var(--teal), var(--good)); transition: width 0.5s ease; }
+.done { color: var(--good); }
+.lb { counter-reset: lb; }
+.lb .row { font-variant-numeric: tabular-nums; }
+.lb .row::before { counter-increment: lb; content: counter(lb); color: var(--mute); width: 1.6em; font: 14px var(--display); }
+.lb .row span:nth-child(1) { flex: 1; }
+
+/* ---------- Shop ---------- */
+.tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+.tab { flex: 1; padding: 11px; border-radius: 10px; background: rgba(255, 255, 255, 0.06); color: var(--mute); border: 1px solid var(--line); cursor: pointer; font-weight: 600; font-size: 15px; }
+.tab[aria-selected="true"] { background: var(--amber); color: #1a1106; border-color: transparent; }
+.carousel { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; padding: 4px 2px 14px; margin: 0 -2px; }
+.card { flex: 0 0 132px; scroll-snap-align: start; background: rgba(255, 255, 255, 0.05); border: 2px solid transparent; border-radius: 16px; padding: 12px; cursor: pointer; text-align: left; color: var(--ink); transition: border-color 0.2s, transform 0.2s, background 0.2s; }
+.card:hover { transform: translateY(-3px); background: rgba(255, 255, 255, 0.09); }
+.card[aria-pressed="true"] { border-color: var(--amber); background: rgba(255, 177, 42, 0.12); }
+.swatch { height: 78px; border-radius: 10px; margin-bottom: 10px; position: relative; overflow: hidden; }
+.card b { display: block; font-size: 15px; }
+.card small { color: var(--mute); font-size: 13px; }
+.card .tag { color: var(--teal); }
+.coinline { display: inline-flex; align-items: center; gap: 6px; font: 18px var(--display); font-variant-numeric: tabular-nums; }
+.coinline svg, .hud-coins svg { width: 20px; height: 20px; }
+
+/* ---------- Settings ---------- */
+.switch { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+.switch small { display: block; color: var(--mute); font-size: 13px; margin-top: 2px; }
+.switch input { appearance: none; width: 46px; height: 28px; border-radius: 14px; background: rgba(255, 255, 255, 0.16); position: relative; transition: background 0.2s; flex: none; cursor: pointer; }
+.switch input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; transition: transform 0.2s; }
+.switch input:checked { background: var(--teal); }
+.switch input:checked::after { transform: translateX(18px); }
+input[type=range] { width: 150px; accent-color: var(--amber); }
+select { background: rgba(255, 255, 255, 0.08); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 15px; }
+select option { background: var(--panel-solid); color: var(--ink); }
+.keybtn { min-width: 92px; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.08); color: var(--ink); font: 600 14px var(--body); cursor: pointer; }
+.keybtn.wait { border-color: var(--amber); color: var(--amber); }
+
+/* ---------- About ---------- */
+.about-lead { color: var(--ink); font-size: 15px; line-height: 1.55; margin-bottom: 16px; }
+.about-dev { background: rgba(255, 255, 255, 0.05); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; }
+.about-dev small { display: block; color: var(--mute); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 4px; }
+.about-dev b { font: 18px var(--display); letter-spacing: 0.02em; color: var(--amber); }
+.about-links { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 10px; }
+.about-links .btn { text-align: center; text-decoration: none; display: block; }
+
+/* ---------- HUD ---------- */
+#hud { display: block; padding: inherit; transform: none; }
+.hud-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.hud-score { font: clamp(30px, 6vw, 44px)/1 var(--display); font-variant-numeric: tabular-nums; text-shadow: 0 3px 0 rgba(0, 0, 0, 0.5), 0 0 24px rgba(0, 0, 0, 0.4); }
+.hud-sub { display: flex; align-items: center; gap: 10px; margin-top: 6px; color: #fff; text-shadow: 0 2px 6px rgba(0, 0, 0, 0.7); font-weight: 600; font-variant-numeric: tabular-nums; }
+.mult { display: inline-block; min-width: 3.2em; text-align: center; font: 15px var(--display); background: var(--ember); color: #fff; padding: 4px 8px; border-radius: 6px; }
+.multbar { width: 130px; height: 6px; border-radius: 3px; background: rgba(0, 0, 0, 0.45); margin-top: 8px; overflow: hidden; }
+.multbar i { display: block; height: 100%; width: 0; background: var(--amber); transition: width 0.15s linear; }
+.hud-right { display: flex; align-items: center; gap: 10px; }
+.hud-coins { display: inline-flex; align-items: center; gap: 8px; font: 22px var(--display); font-variant-numeric: tabular-nums; background: rgba(10, 8, 16, 0.55); border: 1px solid var(--line); padding: 8px 14px; border-radius: 12px; backdrop-filter: blur(6px); text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5); }
+#banner { position: absolute; left: 50%; top: 22%; transform: translate(-50%, -20px); opacity: 0; font: clamp(20px, 5vw, 34px) var(--display); letter-spacing: 0.06em; text-align: center; text-shadow: 0 3px 0 rgba(0, 0, 0, 0.55), 0 0 30px rgba(0, 0, 0, 0.5); white-space: nowrap; }
+#toast { position: absolute; left: 50%; top: 34%; transform: translateX(-50%); font: clamp(16px, 3.6vw, 22px) var(--display); color: var(--teal); text-shadow: 0 2px 0 rgba(0, 0, 0, 0.6); opacity: 0; white-space: nowrap; }
+#powers { position: absolute; left: 0; right: 0; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; padding-inline: 16px; }
+.power { display: flex; align-items: center; gap: 8px; padding: 7px 12px 7px 8px; border-radius: 999px; background: rgba(10, 8, 16, 0.6); border: 1px solid var(--line); font: 600 14px var(--body); font-variant-numeric: tabular-nums; backdrop-filter: blur(6px); }
+.power i { width: 22px; height: 22px; border-radius: 50%; display: block; box-shadow: 0 0 12px currentColor; background: currentColor; }
+#count { position: absolute; inset: 0; display: grid; place-items: center; font: clamp(90px, 28vw, 220px) var(--display); color: #fff; text-shadow: 0 6px 0 rgba(0, 0, 0, 0.5), 0 0 60px rgba(255, 177, 42, 0.5); opacity: 0; pointer-events: none; }
+#dailyGoal { margin-top: 10px; font-size: 13px; color: var(--amber); font-weight: 600; text-shadow: 0 2px 4px rgba(0, 0, 0, 0.7); }
+
+@media (max-width: 640px) {
+  .panelwrap { align-items: flex-end; }
+  .panelwrap, .panelwrap.center { justify-content: center; }
+  .panel { border-radius: 20px 20px 0 0; padding: 18px; max-height: 78%; }
+  .menu-actions { width: 100%; }
+  #menu::before { background: linear-gradient(0deg, rgba(8, 6, 14, 0.8), rgba(8, 6, 14, 0.35) 50%, rgba(8, 6, 14, 0.25)); }
+  .brand svg { width: 42px; height: 42px; }
+  input[type=range] { width: 110px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .screen, .card, .btn, .bar > i { transition: none; }
+  #menu.on .foot-path { animation: none; stroke-dashoffset: 0; }
+}
+</style>
+
+<div id="app">
+  <canvas id="gl" tabindex="-1" aria-label="Dino Run 3D game view"></canvas>
+  <div id="ui">
+
+    <section id="loading" class="screen on" aria-live="polite">
+      <div class="logo-word">DINO RUN 3D</div>
+      <div class="loadtrack"><div id="loadbar"></div></div>
+      <div id="loadmsg">Starting</div>
+    </section>
+
+    <section id="menu" class="screen" aria-label="Main menu">
+      <div>
+        <div class="brand">
+          <svg viewBox="0 0 64 64" aria-hidden="true"><path class="foot-path" pathLength="1" d="M14 40 L20 10 M32 44 L32 6 M50 40 L44 10 M16 46 Q32 64 48 46"/></svg>
+          <h1 class="title">Dino Run 3D</h1>
+        </div>
+        <p class="tagline">Dodge, jump and slide through four biomes, from desert noon to volcano night.</p>
+      </div>
+      <div class="menu-bottom">
+        <div class="menu-actions">
+          <button class="btn" id="btnPlay" aria-label="Play">Play</button>
+          <div class="menu-row">
+            <button class="btn ghost" id="btnDaily">Daily Run</button>
+            <button class="btn ghost" id="btnShop">Shop</button>
+          </div>
+          <div class="menu-row">
+            <button class="btn ghost" id="btnMissions">Missions</button>
+            <button class="btn ghost" id="btnSettings">Settings</button>
+          </div>
+          <button class="btn ghost" id="btnAbout">About</button>
+          <div class="hint" id="menuHint">Space or tap to start. Arrow keys, A and D, or swipe to move.</div>
+        </div>
+        <div class="stats">
+          <div class="chip"><small>Best</small><b id="menuBest">0</b></div>
+          <div class="chip"><small>Coins</small><b id="menuCoins">0</b></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="hud" class="screen" aria-label="Game HUD">
+      <div class="hud-top">
+        <div>
+          <div class="hud-score" id="hudScore" aria-live="off">0</div>
+          <div class="hud-sub"><span id="hudDist">0 m</span><span class="mult" id="hudMult">x1</span></div>
+          <div class="multbar"><i id="multBar"></i></div>
+          <div id="dailyGoal" hidden></div>
+        </div>
+        <div class="hud-right">
+          <div class="hud-coins" id="hudCoinsBox"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="#ffc233"/><circle cx="12" cy="12" r="6.5" fill="none" stroke="#b36d00" stroke-width="2"/></svg><span id="hudCoins">0</span></div>
+          <button class="iconbtn" id="btnPause" aria-label="Pause"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><rect x="3" y="2" width="4" height="14" rx="1" fill="currentColor"/><rect x="11" y="2" width="4" height="14" rx="1" fill="currentColor"/></svg></button>
+        </div>
+      </div>
+      <div id="banner" aria-live="polite"></div>
+      <div id="toast" aria-live="polite"></div>
+      <div id="powers"></div>
+    </section>
+    <div id="count" aria-hidden="true"></div>
+
+    <section id="pause" class="screen" role="dialog" aria-label="Paused">
+      <div class="panelwrap center"><div class="panel">
+        <h2>Paused</h2>
+        <div class="panel-actions">
+          <button class="btn" id="btnResume">Resume</button>
+          <button class="btn ghost" id="btnPauseSettings">Settings</button>
+          <button class="btn ghost" id="btnQuit">Quit run</button>
+        </div>
+      </div></div>
+    </section>
+
+    <section id="over" class="screen" role="dialog" aria-label="Run over">
+      <div class="panelwrap center"><div class="panel">
+        <h2>Run over</h2>
+        <div><span class="bigscore" id="overScore">0</span><span class="newbest" id="overNew" hidden>New best</span></div>
+        <div class="grid2">
+          <div class="chip"><small>Distance</small><b id="overDist">0 m</b></div>
+          <div class="chip"><small>Coins</small><b id="overCoins">0</b></div>
+          <div class="chip"><small>Best</small><b id="overBest">0</b></div>
+          <div class="chip"><small>Near misses</small><b id="overNear">0</b></div>
+        </div>
+        <div id="overExtra"></div>
+        <div class="panel-actions">
+          <button class="btn ember" id="btnRevive" hidden>Revive</button>
+          <button class="btn" id="btnAgain">Run again</button>
+          <button class="btn ghost" id="btnHome">Menu</button>
+        </div>
+      </div></div>
+    </section>
+
+    <section id="shop" class="screen" role="dialog" aria-label="Shop">
+      <div class="panelwrap"><div class="panel">
+        <h2>Shop</h2>
+        <div class="row" style="border:0;padding-top:0"><span class="hint">Your coins</span><span class="coinline" id="shopCoins"></span></div>
+        <div class="tabs" role="tablist">
+          <button class="tab" role="tab" id="tabSkins" aria-selected="true">Dino skins</button>
+          <button class="tab" role="tab" id="tabTrails" aria-selected="false">Trails</button>
+        </div>
+        <div class="carousel" id="shopList"></div>
+        <div class="panel-actions">
+          <button class="btn" id="btnShopAct">Equip</button>
+          <button class="btn ghost" id="btnShopBack">Back</button>
+        </div>
+      </div></div>
+    </section>
+
+    <section id="missions" class="screen" role="dialog" aria-label="Missions">
+      <div class="panelwrap"><div class="panel">
+        <h2>Missions</h2>
+        <div id="missionList"></div>
+        <h3>Achievements</h3>
+        <div id="achList"></div>
+        <h3>Best runs on this device</h3>
+        <div id="lbList" class="lb"></div>
+        <div class="panel-actions"><button class="btn ghost" id="btnMissBack">Back</button></div>
+      </div></div>
+    </section>
+
+    <section id="about" class="screen" role="dialog" aria-label="About">
+      <div class="panelwrap"><div class="panel">
+        <h2>About</h2>
+        <p class="about-lead">Dino Run 3D is a three lane endless runner built for the browser. Dodge, jump and slide through four biomes while you collect coins and chase your best score.</p>
+        <div class="about-dev">
+          <small>Developer</small>
+          <b>Developed by Mayur Dhole</b>
+        </div>
+        <div class="about-links">
+          <a class="btn ghost" href="https://github.com/mayurcodes01" target="_blank" rel="noopener noreferrer">GitHub</a>
+          <a class="btn ghost" href="https://www.linkedin.com/in/mayur-dhole-bb60893a5" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+        </div>
+        <div class="row"><span>Version</span><span class="hint">1.0.0</span></div>
+        <div class="row"><span>Built with</span><span class="hint">three.js and WebGL</span></div>
+        <div class="panel-actions"><button class="btn" id="btnAboutBack">Back</button></div>
+      </div></div>
+    </section>
+
+    <section id="settings" class="screen" role="dialog" aria-label="Settings">
+      <div class="panelwrap"><div class="panel">
+        <h2>Settings</h2>
+        <div class="row"><span>Music</span><input type="range" id="setMusic" min="0" max="1" step="0.05" aria-label="Music volume"></div>
+        <div class="row"><span>Effects</span><input type="range" id="setSfx" min="0" max="1" step="0.05" aria-label="Effects volume"></div>
+        <label class="switch"><span>Mute all<small>Silences music and effects</small></span><input type="checkbox" id="setMute"></label>
+        <label class="switch"><span>Reduced motion<small>No camera shake, flashes or speed streaks</small></span><input type="checkbox" id="setReduced"></label>
+        <label class="switch"><span>Obstacle outlines<small>White edges so obstacles never blend into a biome</small></span><input type="checkbox" id="setOutline"></label>
+        <div class="row"><span>Graphics<small class="hint" style="display:block">Auto lowers resolution if frames drop</small></span>
+          <select id="setQuality" aria-label="Graphics quality"><option value="auto">Auto</option><option value="high">High</option><option value="low">Low</option></select></div>
+        <h3>Keys (click, then press a key)</h3>
+        <div id="keyList"></div>
+        <div class="panel-actions">
+          <button class="btn ghost small" id="btnKeysReset">Reset keys</button>
+          <button class="btn ghost small" id="btnResetAll">Erase progress</button>
+          <button class="btn" id="btnSetBack">Back</button>
+        </div>
+      </div></div>
+    </section>
+
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+/*__SCRIPT__*/
+</script>
